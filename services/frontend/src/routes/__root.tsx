@@ -12,6 +12,21 @@ import type { ReactNode } from 'react'
 
 import appCss from '../styles.css?url'
 
+const RootDocument = ({ children }: Readonly<{ children: ReactNode }>) => {
+  return (
+    <html lang="en" {...mantineHtmlProps}>
+      <head>
+        <ColorSchemeScript />
+        <HeadContent />
+      </head>
+      <body>
+        <MantineProvider>{children}</MantineProvider>
+        <Scripts />
+      </body>
+    </html>
+  )
+}
+
 export const Route = createRootRoute({
   head: () => ({
     meta: [
@@ -30,18 +45,3 @@ export const Route = createRootRoute({
   }),
   shellComponent: RootDocument,
 })
-
-function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
-  return (
-    <html lang="en" {...mantineHtmlProps}>
-      <head>
-        <ColorSchemeScript />
-        <HeadContent />
-      </head>
-      <body>
-        <MantineProvider>{children}</MantineProvider>
-        <Scripts />
-      </body>
-    </html>
-  )
-}

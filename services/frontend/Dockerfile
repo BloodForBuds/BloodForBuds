@@ -2,6 +2,8 @@ FROM node:22-alpine AS dependencies
 
 WORKDIR /app
 
+RUN npm install --global npm@11.13.0
+
 COPY package.json package-lock.json ./
 RUN npm ci
 

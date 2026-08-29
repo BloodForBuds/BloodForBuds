@@ -8,6 +8,17 @@ From the repository root, run `just dev` and open <http://localhost:3456>. Caddy
 
 The development container bind-mounts this directory for Vite hot module replacement. Its container-built dependencies are kept in an anonymous `/app/node_modules` volume, which `just dev` renews whenever the environment starts.
 
+## Authentication
+
+The login page uses Firebase passwordless email links. Firebase credentials
+exist in browser memory only long enough to exchange the ID token at
+`POST /api/auth/session`; the frontend then signs out of the Firebase browser
+SDK. The Go server owns the resulting HTTP-only session cookie.
+
+The development Auth Emulator does not send email. After requesting a link,
+the login page displays an emulator-only link that completes the local flow.
+No emulator route or UI is present in production.
+
 To run the frontend without Docker:
 
 ```sh

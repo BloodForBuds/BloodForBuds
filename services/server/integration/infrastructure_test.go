@@ -3,15 +3,20 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/BloodForBuds/BloodForBuds/services/server/internal/app_store"
+	"github.com/BloodForBuds/BloodForBuds/services/server/internal/identity"
 	"github.com/BloodForBuds/BloodForBuds/services/server/internal/key_store"
 	"github.com/BloodForBuds/BloodForBuds/services/server/internal/kms"
 	"github.com/jackc/pgx/v5"
@@ -20,7 +25,7 @@ import (
 const expectedMigrationVersion int64 = 1
 
 func TestInfrastructure(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 
 	t.Run("app store", func(t *testing.T) {
@@ -129,6 +134,120 @@ func TestInfrastructure(t *testing.T) {
 			)
 		}
 	})
+
+	t.Run("Firebase Auth", func(t *testing.T) {
+		projectID := requiredEnvironment(t, "FIREBASE_PROJECT_ID")
+		emulatorHost := requiredEnvironment(t, "FIREBASE_AUTH_EMULATOR_HOST")
+		baseURL := "http://" + emulatorHost
+		email := fmt.Sprintf("integration-%d@example.com", time.Now().UnixNano())
+
+		postJSON(t, ctx, baseURL+"/identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=fake-api-key", map[string]any{
+			"requestType":        "EMAIL_SIGNIN",
+			"email":              email,
+			"continueUrl":        "http://localhost:3456/login",
+			"canHandleCodeInApp": true,
+		}, nil)
+
+		var codes struct {
+			OOBCodes []struct {
+				Email       string `json:"email"`
+				OOBCode     string `json:"oobCode"`
+				RequestType string `json:"requestType"`
+			} `json:"oobCodes"`
+		}
+		getJSON(t, ctx, baseURL+"/emulator/v1/projects/"+projectID+"/oobCodes", &codes)
+
+		var oobCode string
+		for index := len(codes.OOBCodes) - 1; index >= 0; index-- {
+			candidate := codes.OOBCodes[index]
+			if candidate.Email == email && candidate.RequestType == "EMAIL_SIGNIN" {
+				oobCode = candidate.OOBCode
+				break
+			}
+		}
+		if oobCode == "" {
+			t.Fatalf("Firebase Auth Emulator did not create an email sign-in code for %s", email)
+		}
+
+		var signIn struct {
+			IDToken string `json:"idToken"`
+		}
+		postJSON(t, ctx, baseURL+"/identitytoolkit.googleapis.com/v1/accounts:signInWithEmailLink?key=fake-api-key", map[string]string{
+			"email":   email,
+			"oobCode": oobCode,
+		}, &signIn)
+		t.Cleanup(func() {
+			postJSON(t, context.Background(), baseURL+"/identitytoolkit.googleapis.com/v1/accounts:delete?key=fake-api-key", map[string]string{
+				"idToken": signIn.IDToken,
+			}, nil)
+		})
+
+		firebaseAuth, err := identity.NewFirebase(ctx, identity.Config{ProjectID: projectID})
+		if err != nil {
+			t.Fatalf("create Firebase Auth client: %v", err)
+		}
+		sessionCookie, signedIn, err := firebaseAuth.CreateSession(ctx, signIn.IDToken, 12*time.Hour, 5*time.Minute)
+		if err != nil {
+			t.Fatalf("create Firebase session: %v", err)
+		}
+		if signedIn.Email != email || !signedIn.EmailVerified || signedIn.UID == "" {
+			t.Fatalf("unexpected signed-in principal: %#v", signedIn)
+		}
+
+		verified, err := firebaseAuth.VerifySession(ctx, sessionCookie)
+		if err != nil {
+			t.Fatalf("verify Firebase session: %v", err)
+		}
+		if verified != signedIn {
+			t.Fatalf("verified principal %#v does not match signed-in principal %#v", verified, signedIn)
+		}
+	})
+}
+
+func getJSON(t *testing.T, ctx context.Context, url string, target any) {
+	t.Helper()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("create GET request: %v", err)
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	defer response.Body.Close()
+	decodeResponse(t, response, target)
+}
+
+func postJSON(t *testing.T, ctx context.Context, url string, body, target any) {
+	t.Helper()
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("encode POST body: %v", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatalf("create POST request: %v", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	defer response.Body.Close()
+	decodeResponse(t, response, target)
+}
+
+func decodeResponse(t *testing.T, response *http.Response, target any) {
+	t.Helper()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		t.Fatalf("%s returned status %d: %s", response.Request.URL, response.StatusCode, body)
+	}
+	if target != nil {
+		if err := json.NewDecoder(response.Body).Decode(target); err != nil {
+			t.Fatalf("decode %s response: %v", response.Request.URL, err)
+		}
+	}
 }
 
 func createTestDatabase(t *testing.T, ctx context.Context, db *sql.DB, storeName string) string {

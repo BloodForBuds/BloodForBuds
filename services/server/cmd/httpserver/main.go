@@ -14,6 +14,7 @@ import (
 
 	"github.com/BloodForBuds/BloodForBuds/services/server/internal/app_store"
 	apphttp "github.com/BloodForBuds/BloodForBuds/services/server/internal/httpserver"
+	"github.com/BloodForBuds/BloodForBuds/services/server/internal/identity"
 	"github.com/BloodForBuds/BloodForBuds/services/server/internal/key_store"
 	"github.com/BloodForBuds/BloodForBuds/services/server/internal/kms"
 )
@@ -77,9 +78,21 @@ func run(ctx context.Context) error {
 		kmsHealth.Sealed,
 	)
 
+	httpConfig, err := httpConfigFromEnvironment()
+	if err != nil {
+		return err
+	}
+	firebaseAuth, err := identity.NewFirebase(startupCtx, identity.Config{
+		ProjectID:             os.Getenv("FIREBASE_PROJECT_ID"),
+		CredentialsBase64JSON: os.Getenv("FIREBASE_ADMIN_CREDENTIALS_BASE64"),
+	})
+	if err != nil {
+		return err
+	}
+
 	server := &http.Server{
 		Addr:              defaultAddress,
-		Handler:           apphttp.NewHandler(),
+		Handler:           apphttp.NewHandler(firebaseAuth, httpConfig),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -105,6 +118,52 @@ func run(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+func httpConfigFromEnvironment() (apphttp.Config, error) {
+	cookieSecure, err := environmentBool("AUTH_COOKIE_SECURE", true)
+	if err != nil {
+		return apphttp.Config{}, err
+	}
+	sessionDuration, err := environmentDuration("AUTH_SESSION_DURATION", 12*time.Hour)
+	if err != nil {
+		return apphttp.Config{}, err
+	}
+	maxAuthenticationAge, err := environmentDuration("AUTH_MAX_AGE", 5*time.Minute)
+	if err != nil {
+		return apphttp.Config{}, err
+	}
+	useEmulator, err := environmentBool("FIREBASE_USE_EMULATOR", false)
+	if err != nil {
+		return apphttp.Config{}, err
+	}
+
+	if sessionDuration < 5*time.Minute || sessionDuration > 14*24*time.Hour {
+		return apphttp.Config{}, errors.New("AUTH_SESSION_DURATION must be between 5m and 336h")
+	}
+	if maxAuthenticationAge <= 0 {
+		return apphttp.Config{}, errors.New("AUTH_MAX_AGE must be greater than zero")
+	}
+
+	webConfig := apphttp.FirebaseWebConfig{
+		APIKey:      os.Getenv("FIREBASE_WEB_API_KEY"),
+		AppID:       os.Getenv("FIREBASE_WEB_APP_ID"),
+		AuthDomain:  os.Getenv("FIREBASE_WEB_AUTH_DOMAIN"),
+		ProjectID:   os.Getenv("FIREBASE_PROJECT_ID"),
+		UseEmulator: useEmulator,
+	}
+	if webConfig.APIKey == "" || webConfig.AppID == "" || webConfig.AuthDomain == "" || webConfig.ProjectID == "" {
+		return apphttp.Config{}, errors.New(
+			"FIREBASE_PROJECT_ID, FIREBASE_WEB_API_KEY, FIREBASE_WEB_APP_ID, and FIREBASE_WEB_AUTH_DOMAIN are required",
+		)
+	}
+
+	return apphttp.Config{
+		CookieSecure:         cookieSecure,
+		SessionDuration:      sessionDuration,
+		MaxAuthenticationAge: maxAuthenticationAge,
+		FirebaseWeb:          webConfig,
+	}, nil
 }
 
 func appStoreConfigFromEnvironment() (app_store.Config, error) {
@@ -144,6 +203,30 @@ func environmentPort(name string) (int, error) {
 		return 0, fmt.Errorf("parse %s: %w", name, err)
 	}
 	return port, nil
+}
+
+func environmentBool(name string, fallback bool) (bool, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("parse %s: %w", name, err)
+	}
+	return parsed, nil
+}
+
+func environmentDuration(name string, fallback time.Duration) (time.Duration, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", name, err)
+	}
+	return parsed, nil
 }
 
 func environmentOr(name, fallback string) string {

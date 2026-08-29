@@ -3,9 +3,9 @@ services:
     image: postgis/postgis:17-3.5
     platform: linux/amd64
     environment:
-      POSTGRES_DB: ${APP_DB_NAME:-bloodforbuds}
-      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:-bloodforbuds}
-      POSTGRES_USER: ${APP_DB_USER:-bloodforbuds}
+      POSTGRES_DB: ${APP_DB_NAME:?set APP_DB_NAME}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
+      POSTGRES_USER: ${APP_DB_USER:?set APP_DB_USER}
     expose:
       - "5432"
     healthcheck:
@@ -23,9 +23,9 @@ services:
   key-database:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: ${KEY_DB_NAME:-bloodforbuds_keys}
-      POSTGRES_PASSWORD: ${KEY_DB_PASSWORD:-bloodforbuds_keys}
-      POSTGRES_USER: ${KEY_DB_USER:-bloodforbuds_keys}
+      POSTGRES_DB: ${KEY_DB_NAME:?set KEY_DB_NAME}
+      POSTGRES_PASSWORD: ${KEY_DB_PASSWORD:?set KEY_DB_PASSWORD}
+      POSTGRES_USER: ${KEY_DB_USER:?set KEY_DB_USER}
     expose:
       - "5432"
     healthcheck:
@@ -45,6 +45,7 @@ services:
     command: ["server"]
     environment:
       BAO_ADDR: http://127.0.0.1:8200
+      OPENBAO_UNSEAL_KEY: ${OPENBAO_UNSEAL_KEY:?set OPENBAO_UNSEAL_KEY}
     expose:
       - "8200"
     healthcheck:
@@ -75,7 +76,7 @@ services:
       - edge
       - app
     ports:
-      - "80:80"
+      - "${CADDY_HTTP_PORT:-80}:80"
     restart: unless-stopped
 
   frontend:
@@ -101,19 +102,27 @@ services:
         condition: service_healthy
     environment:
       APP_DB_HOST: app-database
-      APP_DB_NAME: ${APP_DB_NAME:-bloodforbuds}
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-bloodforbuds}
+      APP_DB_NAME: ${APP_DB_NAME:?set APP_DB_NAME}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
       APP_DB_PORT: "5432"
-      APP_DB_SSLMODE: ${APP_DB_SSLMODE:-disable}
-      APP_DB_USER: ${APP_DB_USER:-bloodforbuds}
+      APP_DB_SSLMODE: ${APP_DB_SSLMODE:?set APP_DB_SSLMODE}
+      APP_DB_USER: ${APP_DB_USER:?set APP_DB_USER}
       BAO_ADDR: http://openbao:8200
-      BAO_TOKEN: ${BAO_TOKEN:-}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:?set AUTH_COOKIE_SECURE}
+      AUTH_MAX_AGE: ${AUTH_MAX_AGE:?set AUTH_MAX_AGE}
+      AUTH_SESSION_DURATION: ${AUTH_SESSION_DURATION:?set AUTH_SESSION_DURATION}
+      FIREBASE_ADMIN_CREDENTIALS_BASE64: ${FIREBASE_ADMIN_CREDENTIALS_BASE64:?set FIREBASE_ADMIN_CREDENTIALS_BASE64}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?set FIREBASE_PROJECT_ID}
+      FIREBASE_USE_EMULATOR: "false"
+      FIREBASE_WEB_API_KEY: ${FIREBASE_WEB_API_KEY:?set FIREBASE_WEB_API_KEY}
+      FIREBASE_WEB_APP_ID: ${FIREBASE_WEB_APP_ID:?set FIREBASE_WEB_APP_ID}
+      FIREBASE_WEB_AUTH_DOMAIN: ${FIREBASE_WEB_AUTH_DOMAIN:?set FIREBASE_WEB_AUTH_DOMAIN}
       KEY_DB_HOST: key-database
-      KEY_DB_NAME: ${KEY_DB_NAME:-bloodforbuds_keys}
-      KEY_DB_PASSWORD: ${KEY_DB_PASSWORD:-bloodforbuds_keys}
+      KEY_DB_NAME: ${KEY_DB_NAME:?set KEY_DB_NAME}
+      KEY_DB_PASSWORD: ${KEY_DB_PASSWORD:?set KEY_DB_PASSWORD}
       KEY_DB_PORT: "5432"
-      KEY_DB_SSLMODE: ${KEY_DB_SSLMODE:-disable}
-      KEY_DB_USER: ${KEY_DB_USER:-bloodforbuds_keys}
+      KEY_DB_SSLMODE: ${KEY_DB_SSLMODE:?set KEY_DB_SSLMODE}
+      KEY_DB_USER: ${KEY_DB_USER:?set KEY_DB_USER}
     expose:
       - "8080"
     healthcheck:
@@ -136,8 +145,5 @@ networks:
 
 volumes:
   app_store_data:
-    name: bloodforbuds_prod_database_data
   key_store_data:
-    name: bloodforbuds_prod_key_store_data
   openbao_data:
-    name: bloodforbuds_prod_openbao_data
