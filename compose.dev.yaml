@@ -4,6 +4,8 @@ services:
       context: ./services/caddy
     depends_on:
       frontend:
+        condition: service_started
+      server:
         condition: service_healthy
     networks:
       - edge
@@ -18,15 +20,27 @@ services:
       target: development
     expose:
       - "3000"
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000/"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
     networks:
       - app
     restart: unless-stopped
+
+  server:
+    build:
+      context: ./services/server
+      target: development
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - app
+    restart: unless-stopped
+    volumes:
+      - ./services/server:/src
 
 networks:
   edge:
