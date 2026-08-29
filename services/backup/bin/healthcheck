@@ -1,0 +1,21 @@
+#!/bin/sh
+
+set -eu
+
+maximum_age_seconds=25200
+now="$(date +%s)"
+
+for target in key-store app-store openbao; do
+  last_success="/run/backup/$target-last-success"
+  if [ ! -f "$last_success" ]; then
+    echo "$target has no successful backup" >&2
+    exit 1
+  fi
+
+  last_success_time="$(stat -c %Y "$last_success")"
+  age="$((now - last_success_time))"
+  if [ "$age" -lt 0 ] || [ "$age" -gt "$maximum_age_seconds" ]; then
+    echo "$target backup is stale" >&2
+    exit 1
+  fi
+done

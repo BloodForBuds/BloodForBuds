@@ -1,0 +1,109 @@
+#!/bin/sh
+
+set -eu
+
+required_variables="
+APP_DB_HOST
+APP_DB_NAME
+APP_DB_PASSWORD
+APP_DB_PORT
+APP_DB_SSLMODE
+APP_DB_USER
+KEY_DB_HOST
+KEY_DB_NAME
+KEY_DB_PASSWORD
+KEY_DB_PORT
+KEY_DB_SSLMODE
+KEY_DB_USER
+BAO_ADDR
+BAO_BACKUP_ROLE_ID
+BAO_BACKUP_SECRET_ID
+"
+
+for prefix in APP KEY OPENBAO; do
+  for suffix in \
+    BACKUP_B2_REPOSITORY \
+    BACKUP_B2_ACCOUNT_ID \
+    BACKUP_B2_ACCOUNT_KEY \
+    BACKUP_B2_REPOSITORY_PASSWORD \
+    BACKUP_R2_REPOSITORY \
+    BACKUP_R2_ACCESS_KEY_ID \
+    BACKUP_R2_SECRET_ACCESS_KEY \
+    BACKUP_R2_REPOSITORY_PASSWORD \
+    BACKUP_RETENTION_HOURS; do
+    required_variables="$required_variables ${prefix}_${suffix}"
+  done
+done
+
+for variable_name in $required_variables; do
+  variable_value="$(printenv "$variable_name" || true)"
+  if [ -z "$variable_value" ]; then
+    echo "required environment variable is empty: $variable_name" >&2
+    exit 1
+  fi
+done
+
+for variable_name in \
+  APP_BACKUP_RETENTION_HOURS \
+  KEY_BACKUP_RETENTION_HOURS \
+  OPENBAO_BACKUP_RETENTION_HOURS; do
+  variable_value="$(printenv "$variable_name")"
+  case "$variable_value" in
+    *[!0-9]* | 0 | "")
+      echo "$variable_name must be a positive integer" >&2
+      exit 1
+      ;;
+  esac
+done
+
+write_repository_password() {
+  prefix="$1"
+  target="$2"
+  provider="$3"
+  password="$(printenv "${prefix}_BACKUP_${provider}_REPOSITORY_PASSWORD")"
+  printf '%s\n' "$password" > "/run/backup/$target-$(printf '%s' "$provider" | tr '[:upper:]' '[:lower:]')-repository-password"
+}
+
+umask 077
+for target_configuration in "APP app-store" "KEY key-store" "OPENBAO openbao"; do
+  target_prefix="${target_configuration%% *}"
+  target_name="${target_configuration#* }"
+  write_repository_password "$target_prefix" "$target_name" B2
+  write_repository_password "$target_prefix" "$target_name" R2
+done
+
+backup_scripts="
+/usr/local/bin/backup-key-store
+/usr/local/bin/backup-app-store
+/usr/local/bin/backup-openbao
+"
+
+case "${1:-run}" in
+  init)
+    for backup_script in $backup_scripts; do
+      "$backup_script" initialize
+    done
+    exit 0
+    ;;
+  run)
+    for backup_script in $backup_scripts; do
+      "$backup_script" prepare
+    done
+    for backup_script in $backup_scripts; do
+      "$backup_script" expire
+    done
+    initial_backup_status=0
+    for backup_script in $backup_scripts; do
+      "$backup_script" backup || initial_backup_status=1
+    done
+    if [ "$initial_backup_status" -ne 0 ]; then
+      echo "one or more initial backups failed; Supercronic will retry on schedule" >&2
+    fi
+    ;;
+  *)
+    echo "usage: backup-entrypoint {run|init}" >&2
+    exit 64
+    ;;
+esac
+
+exec supercronic /etc/supercronic/backup.crontab

@@ -1,0 +1,9 @@
+# Back up each target every six hours, staggered to limit resource contention.
+0 */6 * * * /usr/local/bin/backup-key-store backup
+10 */6 * * * /usr/local/bin/backup-app-store backup
+20 */6 * * * /usr/local/bin/backup-openbao backup
+
+# Key material has a hard expiry. Larger, long-lived repositories prune daily.
+30 * * * * /usr/local/bin/backup-key-store expire
+40 1 * * * /usr/local/bin/backup-app-store expire
+50 2 * * * /usr/local/bin/backup-openbao expire

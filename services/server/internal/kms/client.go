@@ -46,7 +46,7 @@ func New(config Config) (*Client, error) {
 }
 
 // Health verifies that OpenBao is reachable. Sealed and uninitialized servers are
-// reported as state rather than errors so production can be initialized out of band.
+// reported as state so callers can include that state in startup diagnostics.
 func (c *Client) Health(ctx context.Context) (Health, error) {
 	response, err := c.client.Sys().HealthWithContext(ctx)
 	if err != nil {

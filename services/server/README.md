@@ -19,8 +19,9 @@ Deployment settings are supplied through `APP_DB_*`, `KEY_DB_*`, and the
 Firebase variables documented in the root `.env.example`.
 The Firebase Admin credential is accepted as one-line base64 JSON through the
 environment, or discovered through Google Application Default Credentials when
-that variable is empty. A new production OpenBao instance must be initialized
-and unsealed out of band.
+that variable is empty. A new staging or production OpenBao instance
+self-initializes and automatically unseals from the Infisical-backed deployment
+configuration.
 
 The public authentication endpoints, after Caddy's `/api` prefix, are:
 

@@ -41,3 +41,16 @@ Authentication's authorized domains.
 
 Local development always uses the isolated Firebase Auth Emulator and ignores
 real Firebase credentials.
+
+## Backups
+
+Staging and production run one Supercronic backup service with separate scripts
+and B2/R2 repositories for the application database, key database, and OpenBao.
+The key store has a hard 24-hour retention policy; application and OpenBao
+snapshots default to 30 days and retain their newest snapshot during a
+prolonged outage. Development does not run backups. See
+[`services/backup/README.md`](services/backup/README.md) for bucket permissions,
+required Infisical values, initialization, retention, and restore guidance.
+OpenBao backups use a short-lived token obtained through an AppRole; see
+[`services/openbao/README.md`](services/openbao/README.md) for its automatic
+self-initialization, operator-access, and recovery-key procedures.

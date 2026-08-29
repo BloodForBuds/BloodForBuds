@@ -1,0 +1,34 @@
+#!/bin/sh
+
+set -eu
+
+# shellcheck source=backup-common
+. /usr/local/lib/backup-common
+
+configure_backup_target KEY key-store key-store.dump false
+
+create_snapshot() {
+  backup_log "creating a consistent PostgreSQL dump"
+  PGHOST="$KEY_DB_HOST" \
+  PGPORT="$KEY_DB_PORT" \
+  PGDATABASE="$KEY_DB_NAME" \
+  PGUSER="$KEY_DB_USER" \
+  PGPASSWORD="$KEY_DB_PASSWORD" \
+  PGSSLMODE="$KEY_DB_SSLMODE" \
+    pg_dump \
+      --format=custom \
+      --no-owner \
+      --no-privileges \
+      --file "$BACKUP_DUMP_PATH"
+}
+
+case "${1:-}" in
+  initialize) initialize_backup_target ;;
+  prepare) prepare_backup_target ;;
+  backup) backup_file_target ;;
+  expire) expire_backup_target ;;
+  *)
+    echo "usage: backup-key-store {initialize|prepare|backup|expire}" >&2
+    exit 64
+    ;;
+esac

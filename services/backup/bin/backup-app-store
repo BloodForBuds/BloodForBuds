@@ -1,0 +1,34 @@
+#!/bin/sh
+
+set -eu
+
+# shellcheck source=backup-common
+. /usr/local/lib/backup-common
+
+configure_backup_target APP app-store app-store.dump true
+
+backup_app_store() {
+  export PGHOST="$APP_DB_HOST"
+  export PGPORT="$APP_DB_PORT"
+  export PGDATABASE="$APP_DB_NAME"
+  export PGUSER="$APP_DB_USER"
+  export PGPASSWORD="$APP_DB_PASSWORD"
+  export PGSSLMODE="$APP_DB_SSLMODE"
+
+  backup_command_target \
+    pg_dump \
+      --format=custom \
+      --no-owner \
+      --no-privileges
+}
+
+case "${1:-}" in
+  initialize) initialize_backup_target ;;
+  prepare) prepare_backup_target ;;
+  backup) backup_app_store ;;
+  expire) expire_backup_target ;;
+  *)
+    echo "usage: backup-app-store {initialize|prepare|backup|expire}" >&2
+    exit 64
+    ;;
+esac
