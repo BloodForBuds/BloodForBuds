@@ -4,7 +4,7 @@ default:
 
 # Start the development environment and build images.
 dev:
-    docker compose --file compose.dev.yaml up --build
+    docker compose --file compose.dev.yaml up --build --renew-anon-volumes
 
 # Start the production environment and optionally detach (`just prod true`).
 prod detach="false":

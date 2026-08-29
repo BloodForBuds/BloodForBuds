@@ -6,6 +6,8 @@ The BloodForBuds frontend is a TypeScript and React application built with TanSt
 
 From the repository root, run `just dev` and open <http://localhost:3456>. Caddy is the only service exposed to the host and forwards requests to the frontend over the private Compose network.
 
+The development container bind-mounts this directory for Vite hot module replacement. Its container-built dependencies are kept in an anonymous `/app/node_modules` volume, which `just dev` renews whenever the environment starts.
+
 To run the frontend without Docker:
 
 ```sh

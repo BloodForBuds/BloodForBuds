@@ -2,7 +2,9 @@
 
 Caddy is the HTTP ingress and reverse proxy for BloodForBuds. It listens on port 80; TLS termination is handled by infrastructure outside this repository.
 
-The `Caddyfile` is copied into the image at build time, so the container does not use a configuration volume. Rebuild the image after changing the routing configuration.
+The `Caddyfile` is copied into the image at build time, so the production container does not use a configuration volume. Rebuild the production image after changing the routing configuration.
+
+In development, the Caddy service directory is bind-mounted read-only and Caddy watches the `Caddyfile` for changes. Production continues to use only the configuration baked into the image.
 
 Requests under `/api` are forwarded to the Go server after the `/api` prefix is stripped. All other traffic is forwarded to the frontend. Both upstreams are reached over the private Compose application network.
 
