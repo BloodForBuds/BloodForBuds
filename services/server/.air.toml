@@ -2,7 +2,7 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-cmd = "go build -o ./tmp/server ."
+cmd = "go build -o ./tmp/server ./cmd/httpserver"
 entrypoint = ["./tmp/server"]
 include_ext = ["go"]
 exclude_dir = ["tmp"]

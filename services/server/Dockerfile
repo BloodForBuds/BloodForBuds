@@ -16,7 +16,7 @@ CMD ["air", "-c", ".air.toml"]
 FROM base AS build
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/httpserver
 
 FROM alpine:3.24 AS production
 
