@@ -4,6 +4,5 @@
 }
 
 :80 {
-	respond /healthz "OK" 200
-	respond "No route configured" 404
+	reverse_proxy frontend:3000
 }

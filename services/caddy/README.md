@@ -4,8 +4,4 @@ Caddy is the HTTP ingress and reverse proxy for BloodForBuds. It listens on port
 
 The `Caddyfile` is copied into the image at build time, so the container does not use a configuration volume. Rebuild the image after changing the routing configuration.
 
-The initial configuration exposes `GET /healthz` and returns a 404 for unmatched requests. Add application routes to `Caddyfile` as services are introduced. For example:
-
-```caddyfile
-reverse_proxy /api/* api:3000
-```
+All traffic is forwarded to the frontend service over the private Compose application network. Caddy is the only service attached to the edge network and the only service that publishes a host port.
