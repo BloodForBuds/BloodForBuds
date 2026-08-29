@@ -1,0 +1,9 @@
+{
+	auto_https off
+	admin off
+}
+
+:80 {
+	respond /healthz "OK" 200
+	respond "No route configured" 404
+}

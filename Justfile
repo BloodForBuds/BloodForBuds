@@ -2,9 +2,9 @@
 default:
     @just --list
 
-# Start the staging environment and build images.
+# Start the development environment and build images.
 dev:
-    docker compose --file compose.staging.yml up --build
+    docker compose --file compose.dev.yaml up --build
 
 # Start the production environment and optionally detach (`just prod true`).
 prod detach="false":

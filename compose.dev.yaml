@@ -3,5 +3,5 @@ services:
     build:
       context: ./services/caddy
     ports:
-      - "80:80"
+      - "3456:80"
     restart: unless-stopped
