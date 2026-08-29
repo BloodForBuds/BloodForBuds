@@ -6,10 +6,16 @@ The server exposes `GET /healthz`. Caddy removes the `/api` prefix before forwar
 
 `just dev` runs the server with Air and bind-mounts this directory into the development container. Changes to Go files trigger an automatic rebuild and restart. Production uses the compiled runtime image without Air or source mounts.
 
-Run the server directly with:
+PostGIS runs on the private application network and stores its data in a named Docker volume. Development and production use separate volumes. Compose waits for the database before starting the server. The server embeds the Goose SQL migrations from `migrations` and applies pending migrations before it starts accepting HTTP traffic. The official PostGIS image is currently amd64-only, so Compose explicitly enables Docker's amd64 emulation on arm64 development machines.
+
+Production database settings can be overridden with `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD`. Use deployment-managed secrets rather than the local defaults outside development.
+
+To run the server directly, point the standard PostgreSQL environment variables at an accessible database:
 
 ```sh
-go -C services/server run .
+PGHOST=localhost PGPORT=5432 PGDATABASE=bloodforbuds \
+  PGUSER=bloodforbuds PGPASSWORD=bloodforbuds \
+  go -C services/server run .
 ```
 
 Run its checks with:

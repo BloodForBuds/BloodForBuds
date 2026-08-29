@@ -2,18 +2,34 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"embed"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 )
 
 const defaultAddress = ":8080"
 
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
+
 func main() {
+	migrationCtx, cancelMigration := context.WithTimeout(context.Background(), 30*time.Second)
+	err := migrateDatabase(migrationCtx)
+	cancelMigration()
+	if err != nil {
+		log.Fatalf("migrate database: %v", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
 
@@ -46,6 +62,28 @@ func main() {
 			log.Printf("graceful shutdown failed: %v", err)
 		}
 	}
+}
+
+func migrateDatabase(ctx context.Context) error {
+	db, err := sql.Open("pgx", os.Getenv("DATABASE_URL"))
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping database: %w", err)
+	}
+
+	goose.SetBaseFS(migrationFiles)
+	if err := goose.SetDialect("postgres"); err != nil {
+		return fmt.Errorf("set migration dialect: %w", err)
+	}
+	if err := goose.UpContext(ctx, db, "migrations"); err != nil {
+		return fmt.Errorf("apply migrations: %w", err)
+	}
+
+	return nil
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {

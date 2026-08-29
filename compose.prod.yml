@@ -1,4 +1,25 @@
 services:
+  database:
+    image: postgis/postgis:17-3.5
+    platform: linux/amd64
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bloodforbuds}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bloodforbuds}
+      POSTGRES_USER: ${POSTGRES_USER:-bloodforbuds}
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - app
+    restart: unless-stopped
+    volumes:
+      - database_data:/var/lib/postgresql/data
+
   caddy:
     build:
       context: ./services/caddy
@@ -28,6 +49,15 @@ services:
     build:
       context: ./services/server
       target: production
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      PGDATABASE: ${POSTGRES_DB:-bloodforbuds}
+      PGHOST: database
+      PGPASSWORD: ${POSTGRES_PASSWORD:-bloodforbuds}
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER:-bloodforbuds}
     expose:
       - "8080"
     healthcheck:
@@ -47,3 +77,7 @@ networks:
     driver_opts:
       com.docker.network.bridge.gateway_mode_ipv4: isolated
     internal: true
+
+volumes:
+  database_data:
+    name: bloodforbuds_prod_database_data
