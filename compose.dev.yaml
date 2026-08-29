@@ -1,5 +1,5 @@
 services:
-  database:
+  app-database:
     image: postgis/postgis:17-3.5
     platform: linux/amd64
     environment:
@@ -18,7 +18,50 @@ services:
       - app
     restart: unless-stopped
     volumes:
-      - database_data:/var/lib/postgresql/data
+      - app_store_data:/var/lib/postgresql/data
+
+  key-database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: bloodforbuds_keys
+      POSTGRES_PASSWORD: bloodforbuds_keys
+      POSTGRES_USER: bloodforbuds_keys
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - app
+    restart: unless-stopped
+    volumes:
+      - key_store_data:/var/lib/postgresql/data
+
+  openbao:
+    image: openbao/openbao:2.6.2
+    command: ["server", "-dev"]
+    environment:
+      BAO_ADDR: http://127.0.0.1:8200
+      BAO_API_ADDR: http://openbao:8200
+      BAO_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      BAO_DEV_ROOT_TOKEN_ID: bloodforbuds-dev-only
+    expose:
+      - "8200"
+    healthcheck:
+      test: ["CMD", "bao", "status", "-address=http://127.0.0.1:8200"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    mem_limit: 512m
+    mem_swappiness: 0
+    memswap_limit: 512m
+    networks:
+      - app
+    restart: unless-stopped
 
   caddy:
     build:
@@ -56,14 +99,25 @@ services:
       context: ./services/server
       target: development
     depends_on:
-      database:
+      app-database:
+        condition: service_healthy
+      key-database:
+        condition: service_healthy
+      openbao:
         condition: service_healthy
     environment:
-      PGDATABASE: bloodforbuds
-      PGHOST: database
-      PGPASSWORD: bloodforbuds
-      PGPORT: "5432"
-      PGUSER: bloodforbuds
+      APP_DB_HOST: app-database
+      APP_DB_NAME: bloodforbuds
+      APP_DB_PASSWORD: bloodforbuds
+      APP_DB_PORT: "5432"
+      APP_DB_USER: bloodforbuds
+      BAO_ADDR: http://openbao:8200
+      BAO_TOKEN: bloodforbuds-dev-only
+      KEY_DB_HOST: key-database
+      KEY_DB_NAME: bloodforbuds_keys
+      KEY_DB_PASSWORD: bloodforbuds_keys
+      KEY_DB_PORT: "5432"
+      KEY_DB_USER: bloodforbuds_keys
     expose:
       - "8080"
     healthcheck:
@@ -88,5 +142,7 @@ networks:
     internal: true
 
 volumes:
-  database_data:
+  app_store_data:
     name: bloodforbuds_dev_database_data
+  key_store_data:
+    name: bloodforbuds_dev_key_store_data

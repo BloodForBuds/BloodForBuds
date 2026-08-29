@@ -1,11 +1,11 @@
 services:
-  database:
+  app-database:
     image: postgis/postgis:17-3.5
     platform: linux/amd64
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-bloodforbuds}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bloodforbuds}
-      POSTGRES_USER: ${POSTGRES_USER:-bloodforbuds}
+      POSTGRES_DB: ${APP_DB_NAME:-bloodforbuds}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:-bloodforbuds}
+      POSTGRES_USER: ${APP_DB_USER:-bloodforbuds}
     expose:
       - "5432"
     healthcheck:
@@ -18,7 +18,50 @@ services:
       - app
     restart: unless-stopped
     volumes:
-      - database_data:/var/lib/postgresql/data
+      - app_store_data:/var/lib/postgresql/data
+
+  key-database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${KEY_DB_NAME:-bloodforbuds_keys}
+      POSTGRES_PASSWORD: ${KEY_DB_PASSWORD:-bloodforbuds_keys}
+      POSTGRES_USER: ${KEY_DB_USER:-bloodforbuds_keys}
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - app
+    restart: unless-stopped
+    volumes:
+      - key_store_data:/var/lib/postgresql/data
+
+  openbao:
+    image: openbao/openbao:2.6.2
+    command: ["server"]
+    environment:
+      BAO_ADDR: http://127.0.0.1:8200
+    expose:
+      - "8200"
+    healthcheck:
+      test: ["CMD-SHELL", "bao status -address=http://127.0.0.1:8200 >/dev/null 2>&1; code=$$?; [ $$code -eq 0 ] || [ $$code -eq 2 ]"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    mem_limit: 512m
+    mem_swappiness: 0
+    memswap_limit: 512m
+    networks:
+      - app
+    restart: unless-stopped
+    volumes:
+      - ./services/openbao/openbao.hcl:/openbao/config/openbao.hcl:ro
+      - openbao_data:/openbao/file
 
   caddy:
     build:
@@ -50,14 +93,27 @@ services:
       context: ./services/server
       target: production
     depends_on:
-      database:
+      app-database:
+        condition: service_healthy
+      key-database:
+        condition: service_healthy
+      openbao:
         condition: service_healthy
     environment:
-      PGDATABASE: ${POSTGRES_DB:-bloodforbuds}
-      PGHOST: database
-      PGPASSWORD: ${POSTGRES_PASSWORD:-bloodforbuds}
-      PGPORT: "5432"
-      PGUSER: ${POSTGRES_USER:-bloodforbuds}
+      APP_DB_HOST: app-database
+      APP_DB_NAME: ${APP_DB_NAME:-bloodforbuds}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-bloodforbuds}
+      APP_DB_PORT: "5432"
+      APP_DB_SSLMODE: ${APP_DB_SSLMODE:-disable}
+      APP_DB_USER: ${APP_DB_USER:-bloodforbuds}
+      BAO_ADDR: http://openbao:8200
+      BAO_TOKEN: ${BAO_TOKEN:-}
+      KEY_DB_HOST: key-database
+      KEY_DB_NAME: ${KEY_DB_NAME:-bloodforbuds_keys}
+      KEY_DB_PASSWORD: ${KEY_DB_PASSWORD:-bloodforbuds_keys}
+      KEY_DB_PORT: "5432"
+      KEY_DB_SSLMODE: ${KEY_DB_SSLMODE:-disable}
+      KEY_DB_USER: ${KEY_DB_USER:-bloodforbuds_keys}
     expose:
       - "8080"
     healthcheck:
@@ -79,5 +135,9 @@ networks:
     internal: true
 
 volumes:
-  database_data:
+  app_store_data:
     name: bloodforbuds_prod_database_data
+  key_store_data:
+    name: bloodforbuds_prod_key_store_data
+  openbao_data:
+    name: bloodforbuds_prod_openbao_data

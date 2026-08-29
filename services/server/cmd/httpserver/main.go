@@ -2,20 +2,20 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
-
+	"github.com/BloodForBuds/BloodForBuds/services/server/internal/app_store"
 	apphttp "github.com/BloodForBuds/BloodForBuds/services/server/internal/httpserver"
-	"github.com/BloodForBuds/BloodForBuds/services/server/internal/migrations"
+	"github.com/BloodForBuds/BloodForBuds/services/server/internal/key_store"
+	"github.com/BloodForBuds/BloodForBuds/services/server/internal/kms"
 )
 
 const defaultAddress = ":8080"
@@ -30,21 +30,52 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	db, err := sql.Open("pgx", os.Getenv("DATABASE_URL"))
+	startupCtx, cancelStartup := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelStartup()
+
+	appStoreConfig, err := appStoreConfigFromEnvironment()
 	if err != nil {
-		return fmt.Errorf("open database: %w", err)
-	}
-	defer db.Close()
-
-	migrationCtx, cancelMigration := context.WithTimeout(ctx, 30*time.Second)
-	defer cancelMigration()
-
-	if err := db.PingContext(migrationCtx); err != nil {
-		return fmt.Errorf("ping database: %w", err)
-	}
-	if err := migrations.Up(migrationCtx, db); err != nil {
 		return err
 	}
+	appStore, err := app_store.Open(startupCtx, appStoreConfig)
+	if err != nil {
+		return err
+	}
+	defer appStore.Close()
+	if err := appStore.Migrate(startupCtx); err != nil {
+		return err
+	}
+
+	keyStoreConfig, err := keyStoreConfigFromEnvironment()
+	if err != nil {
+		return err
+	}
+	keyStore, err := key_store.Open(startupCtx, keyStoreConfig)
+	if err != nil {
+		return err
+	}
+	defer keyStore.Close()
+	if err := keyStore.Migrate(startupCtx); err != nil {
+		return err
+	}
+
+	kmsClient, err := kms.New(kms.Config{
+		Address: os.Getenv("BAO_ADDR"),
+		Token:   os.Getenv("BAO_TOKEN"),
+	})
+	if err != nil {
+		return err
+	}
+	kmsHealth, err := kmsClient.Health(startupCtx)
+	if err != nil {
+		return err
+	}
+	log.Printf(
+		"connected to OpenBao version=%s initialized=%t sealed=%t",
+		kmsHealth.Version,
+		kmsHealth.Initialized,
+		kmsHealth.Sealed,
+	)
 
 	server := &http.Server{
 		Addr:              defaultAddress,
@@ -74,4 +105,50 @@ func run(ctx context.Context) error {
 		}
 		return nil
 	}
+}
+
+func appStoreConfigFromEnvironment() (app_store.Config, error) {
+	port, err := environmentPort("APP_DB_PORT")
+	if err != nil {
+		return app_store.Config{}, err
+	}
+	return app_store.Config{
+		Host:     os.Getenv("APP_DB_HOST"),
+		Port:     port,
+		Database: os.Getenv("APP_DB_NAME"),
+		User:     os.Getenv("APP_DB_USER"),
+		Password: os.Getenv("APP_DB_PASSWORD"),
+		SSLMode:  environmentOr("APP_DB_SSLMODE", "disable"),
+	}, nil
+}
+
+func keyStoreConfigFromEnvironment() (key_store.Config, error) {
+	port, err := environmentPort("KEY_DB_PORT")
+	if err != nil {
+		return key_store.Config{}, err
+	}
+	return key_store.Config{
+		Host:     os.Getenv("KEY_DB_HOST"),
+		Port:     port,
+		Database: os.Getenv("KEY_DB_NAME"),
+		User:     os.Getenv("KEY_DB_USER"),
+		Password: os.Getenv("KEY_DB_PASSWORD"),
+		SSLMode:  environmentOr("KEY_DB_SSLMODE", "disable"),
+	}, nil
+}
+
+func environmentPort(name string) (int, error) {
+	value := environmentOr(name, "5432")
+	port, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s: %w", name, err)
+	}
+	return port, nil
+}
+
+func environmentOr(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }
