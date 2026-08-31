@@ -4,6 +4,8 @@
 
 - Firebase: [prod](https://console.firebase.google.com/project/bloodforbuds/overview), [staging](https://console.firebase.google.com/project/bloodforbuds-staging/overview)
 - [Infisical (secrets manager)](https://app.infisical.com/organizations/bf0482f1-aa9e-406f-b4b7-fed082f80829/projects/secret-management/f5166ea4-7823-40f7-9de9-9f646d645d96/overview)
+- Backups:
+    - [Backblaze B2](https://tree-phx1-0005.secure.backblaze.com/b2_browse_files2.htm?bucketAction=select-bucket), [Cloudflare R2](https://dash.cloudflare.com/6ebe9fc8eea8f323f30b6b82ef139be2/r2/overview)
 
 ## Environment configuration
 
