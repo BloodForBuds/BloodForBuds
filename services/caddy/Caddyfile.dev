@@ -1,0 +1,21 @@
+{
+	auto_https off
+	admin off
+}
+
+:80 {
+	@firebase_auth path /identitytoolkit.googleapis.com/* /securetoken.googleapis.com/* /emulator/*
+	handle @firebase_auth {
+		reverse_proxy firebase-auth:9099
+	}
+
+	@api path /api /api/*
+	handle @api {
+		uri strip_prefix /api
+		reverse_proxy server:8080
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

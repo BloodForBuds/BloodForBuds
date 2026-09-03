@@ -1,0 +1,45 @@
+#!/bin/sh
+
+set -eu
+
+# shellcheck source=backup-common
+. /usr/local/lib/backup-common
+
+configure_backup_target OPENBAO openbao openbao.snap true
+
+login_to_openbao() {
+  BAO_ADDR="$BAO_ADDR" \
+  BAO_CLIENT_TIMEOUT=30s \
+    bao write \
+      -field=token \
+      auth/approle/login \
+      role_id="$BAO_BACKUP_ROLE_ID" \
+      secret_id="$BAO_BACKUP_SECRET_ID"
+}
+
+create_snapshot() {
+  backup_log "authenticating with the backup AppRole"
+  backup_token="$(login_to_openbao)"
+  if [ -z "$backup_token" ]; then
+    echo "OpenBao AppRole login returned an empty token" >&2
+    return 1
+  fi
+
+  backup_log "creating an integrated-Raft snapshot"
+  BAO_ADDR="$BAO_ADDR" \
+  BAO_TOKEN="$backup_token" \
+  BAO_CLIENT_TIMEOUT=10m \
+    bao operator raft snapshot save "$BACKUP_DUMP_PATH"
+  unset backup_token
+}
+
+case "${1:-}" in
+  initialize) initialize_backup_target ;;
+  prepare) prepare_backup_target ;;
+  backup) backup_file_target ;;
+  expire) expire_backup_target ;;
+  *)
+    echo "usage: backup-openbao {initialize|prepare|backup|expire}" >&2
+    exit 64
+    ;;
+esac

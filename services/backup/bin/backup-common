@@ -1,0 +1,243 @@
+set -eu
+
+lock_directory=/run/backup/job.lock
+lock_held=false
+
+cleanup_backup() {
+  rm -f "${BACKUP_DUMP_PATH:-}" "${BACKUP_SNAPSHOT_LIST_PATH:-}"
+  if [ "$lock_held" = true ]; then
+    rmdir "$lock_directory" 2>/dev/null || true
+  fi
+}
+
+trap cleanup_backup EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+
+backup_log() {
+  printf '%s [%s] %s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$BACKUP_TARGET" "$*"
+}
+
+configure_backup_target() {
+  prefix="$1"
+  BACKUP_TARGET="$2"
+  BACKUP_SNAPSHOT_FILENAME="$3"
+  BACKUP_KEEP_LATEST="$4"
+  BACKUP_HOST="bloodforbuds-$BACKUP_TARGET"
+  BACKUP_DUMP_PATH="/tmp/$BACKUP_SNAPSHOT_FILENAME"
+  BACKUP_SNAPSHOT_LIST_PATH="/tmp/$BACKUP_TARGET-snapshots.json"
+  BACKUP_LAST_SUCCESS="/run/backup/$BACKUP_TARGET-last-success"
+  BACKUP_RETENTION_HOURS="$(printenv "${prefix}_BACKUP_RETENTION_HOURS")"
+  BACKUP_B2_REPOSITORY="$(printenv "${prefix}_BACKUP_B2_REPOSITORY")"
+  BACKUP_B2_ACCOUNT_ID="$(printenv "${prefix}_BACKUP_B2_ACCOUNT_ID")"
+  BACKUP_B2_ACCOUNT_KEY="$(printenv "${prefix}_BACKUP_B2_ACCOUNT_KEY")"
+  BACKUP_B2_PASSWORD_FILE="/run/backup/$BACKUP_TARGET-b2-repository-password"
+  BACKUP_R2_REPOSITORY="$(printenv "${prefix}_BACKUP_R2_REPOSITORY")"
+  BACKUP_R2_ACCESS_KEY_ID="$(printenv "${prefix}_BACKUP_R2_ACCESS_KEY_ID")"
+  BACKUP_R2_SECRET_ACCESS_KEY="$(printenv "${prefix}_BACKUP_R2_SECRET_ACCESS_KEY")"
+  BACKUP_R2_PASSWORD_FILE="/run/backup/$BACKUP_TARGET-r2-repository-password"
+}
+
+acquire_backup_lock() {
+  if ! mkdir "$lock_directory" 2>/dev/null; then
+    backup_log "another backup operation is already running"
+    exit 75
+  fi
+  lock_held=true
+}
+
+run_restic() {
+  provider="$1"
+  shift
+
+  case "$provider" in
+    b2)
+      B2_ACCOUNT_ID="$BACKUP_B2_ACCOUNT_ID" \
+      B2_ACCOUNT_KEY="$BACKUP_B2_ACCOUNT_KEY" \
+        restic \
+          --cache-dir "$RESTIC_CACHE_DIR" \
+          --cleanup-cache \
+          --retry-lock 5m \
+          --repo "$BACKUP_B2_REPOSITORY" \
+          --password-file "$BACKUP_B2_PASSWORD_FILE" \
+          "$@"
+      ;;
+    r2)
+      AWS_ACCESS_KEY_ID="$BACKUP_R2_ACCESS_KEY_ID" \
+      AWS_SECRET_ACCESS_KEY="$BACKUP_R2_SECRET_ACCESS_KEY" \
+      AWS_DEFAULT_REGION=auto \
+        restic \
+          --cache-dir "$RESTIC_CACHE_DIR" \
+          --cleanup-cache \
+          --retry-lock 5m \
+          --repo "$BACKUP_R2_REPOSITORY" \
+          --password-file "$BACKUP_R2_PASSWORD_FILE" \
+          "$@"
+      ;;
+    *)
+      echo "unknown backup provider: $provider" >&2
+      return 1
+      ;;
+  esac
+}
+
+check_repository() {
+  provider="$1"
+
+  if run_restic "$provider" snapshots >/dev/null 2>&1; then
+    backup_log "$provider repository is ready"
+    return 0
+  else
+    check_status=$?
+  fi
+
+  return "$check_status"
+}
+
+prepare_repository() {
+  provider="$1"
+
+  if check_repository "$provider"; then
+    return
+  else
+    repository_status=$?
+  fi
+
+  echo "$BACKUP_TARGET $provider repository is unavailable (restic exit $repository_status)" >&2
+  return "$repository_status"
+}
+
+initialize_repository() {
+  provider="$1"
+
+  if check_repository "$provider"; then
+    return
+  else
+    repository_status=$?
+  fi
+
+  if [ "$repository_status" -ne 10 ]; then
+    echo "$BACKUP_TARGET $provider repository is unavailable (restic exit $repository_status)" >&2
+    return "$repository_status"
+  fi
+
+  backup_log "initializing $provider repository"
+  run_restic "$provider" init
+}
+
+initialize_backup_target() {
+  acquire_backup_lock
+  initialize_repository b2
+  initialize_repository r2
+}
+
+prepare_backup_target() {
+  acquire_backup_lock
+  prepare_repository b2
+  prepare_repository r2
+}
+
+upload_file() {
+  provider="$1"
+  backup_log "uploading snapshot to $provider"
+  run_restic "$provider" backup \
+    --host "$BACKUP_HOST" \
+    --tag "$BACKUP_TARGET" \
+    "$BACKUP_DUMP_PATH"
+}
+
+backup_file_target() {
+  acquire_backup_lock
+  rm -f "$BACKUP_DUMP_PATH"
+  create_snapshot
+
+  backup_status=0
+  upload_file b2 || backup_status=1
+  upload_file r2 || backup_status=1
+
+  if [ "$backup_status" -ne 0 ]; then
+    echo "$BACKUP_TARGET backup did not reach both repositories" >&2
+    return "$backup_status"
+  fi
+
+  touch "$BACKUP_LAST_SUCCESS"
+  backup_log "backup reached both repositories"
+}
+
+upload_command() {
+  provider="$1"
+  shift
+  backup_log "streaming snapshot to $provider"
+  run_restic "$provider" backup \
+    --host "$BACKUP_HOST" \
+    --tag "$BACKUP_TARGET" \
+    --stdin-filename "$BACKUP_SNAPSHOT_FILENAME" \
+    --stdin-from-command -- "$@"
+}
+
+backup_command_target() {
+  acquire_backup_lock
+  backup_status=0
+  upload_command b2 "$@" || backup_status=1
+  upload_command r2 "$@" || backup_status=1
+
+  if [ "$backup_status" -ne 0 ]; then
+    echo "$BACKUP_TARGET backup did not reach both repositories" >&2
+    return "$backup_status"
+  fi
+
+  touch "$BACKUP_LAST_SUCCESS"
+  backup_log "backup reached both repositories"
+}
+
+expired_snapshot_ids() {
+  provider="$1"
+  retention_seconds="$((BACKUP_RETENTION_HOURS * 60 * 60))"
+
+  run_restic "$provider" snapshots \
+    --json \
+    --host "$BACKUP_HOST" \
+    --tag "$BACKUP_TARGET" > "$BACKUP_SNAPSHOT_LIST_PATH"
+
+  jq -r \
+    --argjson keep_latest "$BACKUP_KEEP_LATEST" \
+    --argjson retention_seconds "$retention_seconds" '
+      def epoch:
+        sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+
+      sort_by(.time) as $snapshots
+      | $snapshots[]
+      | select((.time | epoch) < (now - $retention_seconds))
+      | select(($keep_latest | not) or .id != $snapshots[-1].id)
+      | .id
+    ' "$BACKUP_SNAPSHOT_LIST_PATH"
+}
+
+expire_repository() {
+  provider="$1"
+  snapshot_ids="$(expired_snapshot_ids "$provider")"
+  expire_status=0
+
+  if [ -n "$snapshot_ids" ]; then
+    backup_log "forgetting expired snapshots from $provider"
+    # Snapshot IDs contain no shell metacharacters or whitespace.
+    # shellcheck disable=SC2086
+    run_restic "$provider" forget $snapshot_ids || expire_status=1
+  else
+    backup_log "no expired snapshots in $provider"
+  fi
+
+  # Always prune so interrupted physical deletion is retried on the next pass.
+  backup_log "pruning unreferenced data from $provider"
+  run_restic "$provider" prune --max-unused 0 || expire_status=1
+  return "$expire_status"
+}
+
+expire_backup_target() {
+  acquire_backup_lock
+  expire_status=0
+  expire_repository b2 || expire_status=1
+  expire_repository r2 || expire_status=1
+  return "$expire_status"
+}

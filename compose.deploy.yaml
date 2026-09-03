@@ -1,0 +1,226 @@
+services:
+  app-database:
+    image: postgis/postgis:17-3.5
+    platform: linux/amd64
+    environment:
+      POSTGRES_DB: ${APP_DB_NAME:?set APP_DB_NAME}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
+      POSTGRES_USER: ${APP_DB_USER:?set APP_DB_USER}
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - app
+    restart: unless-stopped
+    volumes:
+      - app_store_data:/var/lib/postgresql/data
+
+  key-database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${KEY_DB_NAME:?set KEY_DB_NAME}
+      POSTGRES_PASSWORD: ${KEY_DB_PASSWORD:?set KEY_DB_PASSWORD}
+      POSTGRES_USER: ${KEY_DB_USER:?set KEY_DB_USER}
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - app
+    restart: unless-stopped
+    volumes:
+      - key_store_data:/var/lib/postgresql/data
+
+  backup:
+    build:
+      context: ./services/backup
+    depends_on:
+      app-database:
+        condition: service_healthy
+      key-database:
+        condition: service_healthy
+      openbao:
+        condition: service_healthy
+    environment:
+      APP_BACKUP_B2_ACCOUNT_ID: ${APP_BACKUP_B2_ACCOUNT_ID:?set APP_BACKUP_B2_ACCOUNT_ID}
+      APP_BACKUP_B2_ACCOUNT_KEY: ${APP_BACKUP_B2_ACCOUNT_KEY:?set APP_BACKUP_B2_ACCOUNT_KEY}
+      APP_BACKUP_B2_REPOSITORY: ${APP_BACKUP_B2_REPOSITORY:?set APP_BACKUP_B2_REPOSITORY}
+      APP_BACKUP_B2_REPOSITORY_PASSWORD: ${APP_BACKUP_B2_REPOSITORY_PASSWORD:?set APP_BACKUP_B2_REPOSITORY_PASSWORD}
+      APP_BACKUP_R2_ACCESS_KEY_ID: ${APP_BACKUP_R2_ACCESS_KEY_ID:?set APP_BACKUP_R2_ACCESS_KEY_ID}
+      APP_BACKUP_R2_REPOSITORY: ${APP_BACKUP_R2_REPOSITORY:?set APP_BACKUP_R2_REPOSITORY}
+      APP_BACKUP_R2_REPOSITORY_PASSWORD: ${APP_BACKUP_R2_REPOSITORY_PASSWORD:?set APP_BACKUP_R2_REPOSITORY_PASSWORD}
+      APP_BACKUP_R2_SECRET_ACCESS_KEY: ${APP_BACKUP_R2_SECRET_ACCESS_KEY:?set APP_BACKUP_R2_SECRET_ACCESS_KEY}
+      APP_BACKUP_RETENTION_HOURS: "720"
+      APP_DB_HOST: app-database
+      APP_DB_NAME: ${APP_DB_NAME:?set APP_DB_NAME}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
+      APP_DB_PORT: "5432"
+      APP_DB_SSLMODE: ${APP_DB_SSLMODE:?set APP_DB_SSLMODE}
+      APP_DB_USER: ${APP_DB_USER:?set APP_DB_USER}
+      BAO_ADDR: http://openbao:8200
+      BAO_BACKUP_ROLE_ID: ${BAO_BACKUP_ROLE_ID:?set BAO_BACKUP_ROLE_ID}
+      BAO_BACKUP_SECRET_ID: ${BAO_BACKUP_SECRET_ID:?set BAO_BACKUP_SECRET_ID}
+      KEY_BACKUP_B2_ACCOUNT_ID: ${KEY_BACKUP_B2_ACCOUNT_ID:?set KEY_BACKUP_B2_ACCOUNT_ID}
+      KEY_BACKUP_B2_ACCOUNT_KEY: ${KEY_BACKUP_B2_ACCOUNT_KEY:?set KEY_BACKUP_B2_ACCOUNT_KEY}
+      KEY_BACKUP_B2_REPOSITORY: ${KEY_BACKUP_B2_REPOSITORY:?set KEY_BACKUP_B2_REPOSITORY}
+      KEY_BACKUP_B2_REPOSITORY_PASSWORD: ${KEY_BACKUP_B2_REPOSITORY_PASSWORD:?set KEY_BACKUP_B2_REPOSITORY_PASSWORD}
+      KEY_BACKUP_R2_ACCESS_KEY_ID: ${KEY_BACKUP_R2_ACCESS_KEY_ID:?set KEY_BACKUP_R2_ACCESS_KEY_ID}
+      KEY_BACKUP_R2_REPOSITORY: ${KEY_BACKUP_R2_REPOSITORY:?set KEY_BACKUP_R2_REPOSITORY}
+      KEY_BACKUP_R2_REPOSITORY_PASSWORD: ${KEY_BACKUP_R2_REPOSITORY_PASSWORD:?set KEY_BACKUP_R2_REPOSITORY_PASSWORD}
+      KEY_BACKUP_R2_SECRET_ACCESS_KEY: ${KEY_BACKUP_R2_SECRET_ACCESS_KEY:?set KEY_BACKUP_R2_SECRET_ACCESS_KEY}
+      KEY_BACKUP_RETENTION_HOURS: "24"
+      KEY_DB_HOST: key-database
+      KEY_DB_NAME: ${KEY_DB_NAME:?set KEY_DB_NAME}
+      KEY_DB_PASSWORD: ${KEY_DB_PASSWORD:?set KEY_DB_PASSWORD}
+      KEY_DB_PORT: "5432"
+      KEY_DB_SSLMODE: ${KEY_DB_SSLMODE:?set KEY_DB_SSLMODE}
+      KEY_DB_USER: ${KEY_DB_USER:?set KEY_DB_USER}
+      OPENBAO_BACKUP_B2_ACCOUNT_ID: ${OPENBAO_BACKUP_B2_ACCOUNT_ID:?set OPENBAO_BACKUP_B2_ACCOUNT_ID}
+      OPENBAO_BACKUP_B2_ACCOUNT_KEY: ${OPENBAO_BACKUP_B2_ACCOUNT_KEY:?set OPENBAO_BACKUP_B2_ACCOUNT_KEY}
+      OPENBAO_BACKUP_B2_REPOSITORY: ${OPENBAO_BACKUP_B2_REPOSITORY:?set OPENBAO_BACKUP_B2_REPOSITORY}
+      OPENBAO_BACKUP_B2_REPOSITORY_PASSWORD: ${OPENBAO_BACKUP_B2_REPOSITORY_PASSWORD:?set OPENBAO_BACKUP_B2_REPOSITORY_PASSWORD}
+      OPENBAO_BACKUP_R2_ACCESS_KEY_ID: ${OPENBAO_BACKUP_R2_ACCESS_KEY_ID:?set OPENBAO_BACKUP_R2_ACCESS_KEY_ID}
+      OPENBAO_BACKUP_R2_REPOSITORY: ${OPENBAO_BACKUP_R2_REPOSITORY:?set OPENBAO_BACKUP_R2_REPOSITORY}
+      OPENBAO_BACKUP_R2_REPOSITORY_PASSWORD: ${OPENBAO_BACKUP_R2_REPOSITORY_PASSWORD:?set OPENBAO_BACKUP_R2_REPOSITORY_PASSWORD}
+      OPENBAO_BACKUP_R2_SECRET_ACCESS_KEY: ${OPENBAO_BACKUP_R2_SECRET_ACCESS_KEY:?set OPENBAO_BACKUP_R2_SECRET_ACCESS_KEY}
+      OPENBAO_BACKUP_RETENTION_HOURS: "720"
+    mem_limit: 2g
+    mem_swappiness: 0
+    memswap_limit: 2g
+    networks:
+      - app
+      - egress
+    read_only: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10m
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1g,mode=1777
+      - /run/backup:rw,noexec,nosuid,nodev,size=1m,mode=1777
+
+  openbao:
+    build:
+      context: ./services/openbao
+    command: ["server"]
+    environment:
+      BAO_ADDR: http://127.0.0.1:8200
+      BAO_BACKUP_ROLE_ID: ${BAO_BACKUP_ROLE_ID:?set BAO_BACKUP_ROLE_ID}
+      BAO_BACKUP_SECRET_ID: ${BAO_BACKUP_SECRET_ID:?set BAO_BACKUP_SECRET_ID}
+      BAO_OPERATOR_ROLE_ID: ${BAO_OPERATOR_ROLE_ID:?set BAO_OPERATOR_ROLE_ID}
+      BAO_OPERATOR_SECRET_ID: ${BAO_OPERATOR_SECRET_ID:?set BAO_OPERATOR_SECRET_ID}
+      OPENBAO_UNSEAL_KEY: ${OPENBAO_UNSEAL_KEY:?set OPENBAO_UNSEAL_KEY}
+    expose:
+      - "8200"
+    healthcheck:
+      test: ["CMD", "bao", "status", "-address=http://127.0.0.1:8200"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    mem_limit: 512m
+    mem_swappiness: 0
+    memswap_limit: 512m
+    networks:
+      - app
+    restart: unless-stopped
+    volumes:
+      - ./services/openbao/openbao.hcl:/openbao/config/openbao.hcl:ro
+      - openbao_data:/openbao/file
+
+  caddy:
+    build:
+      context: ./services/caddy
+    depends_on:
+      frontend:
+        condition: service_started
+      server:
+        condition: service_healthy
+    networks:
+      - edge
+      - app
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./services/frontend
+      target: production
+    expose:
+      - "3000"
+    networks:
+      - app
+    restart: unless-stopped
+
+  server:
+    build:
+      context: ./services/server
+      target: production
+    depends_on:
+      app-database:
+        condition: service_healthy
+      key-database:
+        condition: service_healthy
+      openbao:
+        condition: service_healthy
+    environment:
+      APP_DB_HOST: app-database
+      APP_DB_NAME: ${APP_DB_NAME:?set APP_DB_NAME}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD}
+      APP_DB_PORT: "5432"
+      APP_DB_SSLMODE: ${APP_DB_SSLMODE:?set APP_DB_SSLMODE}
+      APP_DB_USER: ${APP_DB_USER:?set APP_DB_USER}
+      BAO_ADDR: http://openbao:8200
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:?set AUTH_COOKIE_SECURE}
+      AUTH_MAX_AGE: ${AUTH_MAX_AGE:?set AUTH_MAX_AGE}
+      AUTH_SESSION_DURATION: ${AUTH_SESSION_DURATION:?set AUTH_SESSION_DURATION}
+      FIREBASE_ADMIN_CREDENTIALS_BASE64: ${FIREBASE_ADMIN_CREDENTIALS_BASE64:?set FIREBASE_ADMIN_CREDENTIALS_BASE64}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?set FIREBASE_PROJECT_ID}
+      FIREBASE_USE_EMULATOR: "false"
+      FIREBASE_WEB_API_KEY: ${FIREBASE_WEB_API_KEY:?set FIREBASE_WEB_API_KEY}
+      FIREBASE_WEB_APP_ID: ${FIREBASE_WEB_APP_ID:?set FIREBASE_WEB_APP_ID}
+      FIREBASE_WEB_AUTH_DOMAIN: ${FIREBASE_WEB_AUTH_DOMAIN:?set FIREBASE_WEB_AUTH_DOMAIN}
+      KEY_DB_HOST: key-database
+      KEY_DB_NAME: ${KEY_DB_NAME:?set KEY_DB_NAME}
+      KEY_DB_PASSWORD: ${KEY_DB_PASSWORD:?set KEY_DB_PASSWORD}
+      KEY_DB_PORT: "5432"
+      KEY_DB_SSLMODE: ${KEY_DB_SSLMODE:?set KEY_DB_SSLMODE}
+      KEY_DB_USER: ${KEY_DB_USER:?set KEY_DB_USER}
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - app
+      - egress
+    restart: unless-stopped
+
+networks:
+  edge:
+  egress:
+  app:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+    internal: true
+
+volumes:
+  app_store_data:
+  key_store_data:
+  openbao_data:
